@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #define BIN_DIM 256
-#define BUFFERSIZE 4906
+#define BUFFERSIZE 4096
 
 
 // Function to check CUDA errors
@@ -31,14 +31,13 @@ double cpuSecond() {
 
 
 // Check if CPU and GPU results match
-void checkResult(int *hostRef, int *gpuRef, const int size) {
-    double epsilon = 1.0E-8;
+void checkResult(unsigned long long *hostRef, unsigned long long *gpuRef, const int size) {
     bool match = 1;
     for (int i = 0; i < size; i++) {
         if ((hostRef[i] - gpuRef[i]) != 0) {
             match = 0;
             printf("Arrays do not match!\n");
-            printf("host %d gpu %d at current %d\n", hostRef[i], gpuRef[i], i);
+            printf("host %llu gpu %llu at current %d\n", hostRef[i], gpuRef[i], i);
             
         }
     }
@@ -46,19 +45,18 @@ void checkResult(int *hostRef, int *gpuRef, const int size) {
 }
 
 // Kernel
-__global__ void countCharOnGPU(char *file, int *bin, long int size){
-    unsigned int ix = threadIdx.x + blockIdx.x * blockDim.x;
+__global__ void countCharOnGPU(char *file, unsigned long long *bin, long int size){
+    unsigned int ix = threadIdx.x + blockIdx.x * blockDim.x; 
    
 
     if (ix < size){
         unsigned int idx = ix; // unsigned int idx = iy * W + ix;
-        printf("thread %d processing character %c\n", ix, file[idx]);
-        atomicAdd(&bin[(unsigned char)file[idx]], 1);
+        atomicAdd(&bin[(unsigned char)file[idx]], 1ULL);
     } 
 }
 
 // Host function for char histogram
-void countCharOnCPU(char *file, int *bin, long int size) {
+void countCharOnCPU(char *file, unsigned long long  *bin, long int size) {
   for (int i = 0; i < size; i++) {  
       bin[(unsigned char)file[i]]++;
   }
@@ -98,10 +96,10 @@ int main(int argc, char **argv) {
 
     // Allocate host memory
     char *file_host;
-    int *hostRef, *gpuRef;
+    unsigned long long *hostRef, *gpuRef;
     file_host = (char *)malloc(file_size * sizeof(char));
-    hostRef = (int *)malloc(BIN_DIM*sizeof(int));
-    gpuRef = (int *)malloc(BIN_DIM*sizeof(int));
+    hostRef = (unsigned long long *)malloc(BIN_DIM*sizeof(unsigned long long));
+    gpuRef = (unsigned long long *)malloc(BIN_DIM*sizeof(unsigned long long));
 
     
 
@@ -137,8 +135,8 @@ int main(int argc, char **argv) {
     double iStart;
     double iElaps;
     
-    memset(hostRef, 0, BIN_DIM * sizeof(int));
-    memset(gpuRef, 0, BIN_DIM * sizeof(int));
+    memset(hostRef, 0, BIN_DIM * sizeof(unsigned long long));
+    memset(gpuRef, 0, BIN_DIM * sizeof(unsigned long long));
 
     // Add matrix on CPU
     iStart = cpuSecond();
@@ -148,9 +146,9 @@ int main(int argc, char **argv) {
 
 
     // Allocate device memory
-    int *d_bin;
+    unsigned long long *d_bin;
     char *d_file;
-    CHECK(cudaMalloc((void **)&d_bin, BIN_DIM*sizeof(int)));
+    CHECK(cudaMalloc((void **)&d_bin, BIN_DIM*sizeof(unsigned long long)));
     CHECK(cudaMalloc((void **)&d_file, file_size * sizeof(char)));
 
     // Read file
@@ -176,7 +174,7 @@ int main(int argc, char **argv) {
     printf("Kernel <<<(%d,%d), (%d,%d)>>> elapsed %f sec\n", grid.x, grid.y, block.x, block.y, iElaps);
 
     // Copy kernel result from device to host
-    CHECK(cudaMemcpy(gpuRef, d_bin, BIN_DIM*sizeof(int), cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(gpuRef, d_bin, BIN_DIM*sizeof(unsigned long long), cudaMemcpyDeviceToHost));
 
     // Check result
     checkResult(hostRef, gpuRef, BIN_DIM);
