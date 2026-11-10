@@ -76,23 +76,19 @@ int main(int argc, char **argv) {
     int fptr;
     char buffer[BUFFERSIZE];
     char result_file[4096];
-    char result_dir[512];
+    char result_dir[1024];
     char path[BUFFERSIZE];
-    FILE *csv_file;
+    
     int dataType = 0;
     long int file_size ;
     char *file_host;
     unsigned long long *gpuRef, *hostRef;
     int nread, index;
-    double iStart;
-    double iElaps;
 
 
-    if (mkdir("./results_gpu", 0777) == 0) {
-        printf("Directory created successfully!\n");
-    } else {
-        perror("Error creating directory:");
-    }
+
+
+
 
     char dirname[256];
     if(argc < 3){
@@ -104,16 +100,16 @@ int main(int argc, char **argv) {
 
 
     if(dataType == 1){
+        snprintf(result_dir, sizeof(result_dir), "results_gpu_uniform_data");
         if (mkdir("./results_gpu_uniform_data", 0777) == 0) {
-            strcpy(result_dir,"results_gpu_uniform_data");
             printf("Uniform data directory created successfully!\n");
         } else {
             perror("Error creating uniform data directory:");
         }
     }
     else if(dataType == 2){
-        if (mkdir("./results_gpu_normal_data", 0777) == 0) {
-            strcpy(result_dir,"results_gpu_normal_data");
+        snprintf(result_dir, sizeof(result_dir), "results_gpu_normal_data");
+        if (mkdir("./results_gpu_normal_data", 0777) == 0) {  
             printf("Normal data directory created successfully!\n");
         } else {
             perror("Error creating normal data directory:");
@@ -123,6 +119,17 @@ int main(int argc, char **argv) {
         printf("Usage: %s <directory_name> <data_Type_1_or_2>\n", argv[0]);
         return 1;
     }
+
+    snprintf(result_file, sizeof(result_file), "./%s/stats_file_GPU",result_dir);
+
+    printf("Result file: %s\n", result_file);
+
+    FILE *csv_file = fopen(result_file, "w");   
+    if (csv_file == NULL) {
+        perror("Error while creating statistics file");
+        return 1;
+    }
+    fprintf(csv_file, "filename,H2D_time,Kernel_time,D2H_time\n"); 
 
 
     printf("%s starting...\n", argv[0]);
@@ -136,6 +143,7 @@ int main(int argc, char **argv) {
 
 
 
+
     // Parse command line arguments
     int block_dim_x = 32;
     //int block_dim_y = atoi(argv[2]);
@@ -145,7 +153,7 @@ int main(int argc, char **argv) {
         
         if(!strcmp(dd->d_name,".") || !strcmp(dd->d_name,"..")) continue;
 
-        printf("Found file %s !", dd->d_name);
+        printf("Processing file: %s\n", dd->d_name);
 
 
         snprintf(path, sizeof(path), "%s/%s",dirname,dd->d_name);
@@ -157,6 +165,8 @@ int main(int argc, char **argv) {
             exit(2);
         }
 
+       
+
         
         struct stat info;
         if (stat(path, &info) != 0) perror("stat() error");
@@ -167,13 +177,18 @@ int main(int argc, char **argv) {
         file_host = (char *)malloc(file_size * sizeof(char));
         gpuRef = (unsigned long long *)malloc(BIN_DIM*sizeof(unsigned long long));
         hostRef = (unsigned long long *)malloc(BIN_DIM*sizeof(unsigned long long));
-
-
+ 
         memset(gpuRef, 0, BIN_DIM * sizeof(unsigned long long));
         memset(hostRef, 0, BIN_DIM * sizeof(unsigned long long));
 
+     
+
         index = 0;
         while ((nread = read(fptr, buffer, BUFFERSIZE)) > 0) {
+            if (nread < 0) {
+                perror("Error reading file");
+                exit(3);
+            }
             for (int i = 0; i < nread; i++) {
                 file_host[index] = buffer[i];
                 index++;
@@ -184,14 +199,16 @@ int main(int argc, char **argv) {
 
 
         // Allocate device memory
+        printf("Memory allocated!");
         unsigned long long *d_bin;
         char *d_file;
         CHECK(cudaMalloc((void **)&d_bin, BIN_DIM*sizeof(unsigned long long)));
         CHECK(cudaMalloc((void **)&d_file, file_size * sizeof(char)));
 
 
-        // Transfer data from host to device
+        double tH2D_start = cpuSecond();
         CHECK(cudaMemcpy(d_file, file_host, file_size * sizeof(char), cudaMemcpyHostToDevice));
+        double tH2D = cpuSecond() - tH2D_start;
 
         // Define grid and block dimensions 
         dim3 block, grid;
@@ -207,16 +224,21 @@ int main(int argc, char **argv) {
 
 
         // Launch kernel
-        iStart = cpuSecond();
-        
+        double tKernel_start = cpuSecond();
         countCharOnGPU<<<grid, block>>>(d_file, d_bin, file_size);
+        CHECK(cudaDeviceSynchronize());
+        double tKernel = cpuSecond() - tKernel_start;
     
         CHECK(cudaDeviceSynchronize());
 
-        iElaps = cpuSecond() - iStart;
+
 
         // Copy kernel result from device to host
+        double tD2H_start = cpuSecond();
         CHECK(cudaMemcpy(gpuRef, d_bin, BIN_DIM*sizeof(unsigned long long), cudaMemcpyDeviceToHost));
+        double tD2H = cpuSecond() - tD2H_start;
+
+        fprintf(csv_file, "%s,%f,%f,%f\n", dd->d_name, tH2D, tKernel, tD2H);
 
         // Check result
         checkResult(hostRef, gpuRef, BIN_DIM);
@@ -234,23 +256,15 @@ int main(int argc, char **argv) {
         // Reset CUDA device
         CHECK(cudaDeviceReset());
 
-
-        snprintf(result_file, sizeof(result_file), "./%s/stats_file_%s_GPU",result_dir,dd->d_name);
-
-           
-        // --- SALVATAGGIO IN CSV (VIRTUALE / COLONNE) ---
-        csv_file = fopen(result_file, "w");
-        if (csv_file == NULL) {
-            perror("Error while creating file stats file");
-        } else {
-            fprintf(csv_file, "Name,\tTime(seconds)\n");
-            fprintf(csv_file, "%s,\t%f\n", dd->d_name, iElaps);
-            fclose(csv_file);
-        }
-
+        
+        
 
     }
     closedir(dir);
+    fclose(csv_file);
+
+    // Reset CUDA device
+    CHECK(cudaDeviceReset());
     return 0;
 }
 
