@@ -44,7 +44,7 @@ void checkResult(unsigned long long *hostRef, unsigned long long *gpuRef, const 
             
         }
     }
-    if (match) printf("Arrays match !!!!\n\n");
+    if (match) printf("Verification successfull: GPU results match CPU result!\n\n");
 }
 
 // Kernel
