@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
     char result_dir[1024];
     char path[BUFFERSIZE];
     
-    int dataType = 0;
+
     long int file_size ;
     char *file_host;
     unsigned long long *gpuRef, *hostRef;
@@ -91,15 +91,16 @@ int main(int argc, char **argv) {
 
 
     char dirname[256];
-    if(argc < 3){
-        printf("Usage: %s <directory_name> <data_Type_1_or_2>\n", argv[0]);
+    if(argc < 2){
+        printf("Usage: %s <directory_name>\n", argv[0]);
         return 1;
     }
     strcpy(dirname, argv[1]);
-    dataType = atoi(argv[2]);
+    char dataUniformi[256]="datiUniformi";
+    char dataNormali[256]="data";
 
 
-    if(dataType == 1){
+    if(strcmp(dirname, dataUniformi) == 0){
         snprintf(result_dir, sizeof(result_dir), "results_gpu_uniform_data");
         if (mkdir("./results_gpu_uniform_data", 0777) == 0) {
             printf("Uniform data directory created successfully!\n");
@@ -107,7 +108,7 @@ int main(int argc, char **argv) {
             perror("Error creating uniform data directory:");
         }
     }
-    else if(dataType == 2){
+    else if(strcmp(dirname, dataNormali) == 0){
         snprintf(result_dir, sizeof(result_dir), "results_gpu_normal_data");
         if (mkdir("./results_gpu_normal_data", 0777) == 0) {  
             printf("Normal data directory created successfully!\n");
@@ -116,7 +117,7 @@ int main(int argc, char **argv) {
         }
     }
     else{
-        printf("Usage: %s <directory_name> <data_Type_1_or_2>\n", argv[0]);
+        printf("Usage: %s <directory_name> <datiUniformi|data>\n", argv[0]);
         return 1;
     }
 
@@ -129,7 +130,7 @@ int main(int argc, char **argv) {
         perror("Error while creating statistics file");
         return 1;
     }
-    fprintf(csv_file, "filename,H2D_time,Kernel_time,D2H_time\n"); 
+    fprintf(csv_file, "filename,H2D_time,Kernel_time,D2H_time,tCPU\n"); 
 
 
     printf("%s starting...\n", argv[0]);
@@ -220,7 +221,9 @@ int main(int argc, char **argv) {
 
 
         //Lauch CPU function
+        double tCPU_start = cpuSecond();
         countCharOnCPU(file_host, hostRef,file_size); 
+        double tCPU = cpuSecond() - tCPU_start;
 
 
         // Launch kernel
@@ -238,7 +241,7 @@ int main(int argc, char **argv) {
         CHECK(cudaMemcpy(gpuRef, d_bin, BIN_DIM*sizeof(unsigned long long), cudaMemcpyDeviceToHost));
         double tD2H = cpuSecond() - tD2H_start;
 
-        fprintf(csv_file, "%s,%f,%f,%f\n", dd->d_name, tH2D, tKernel, tD2H);
+        fprintf(csv_file, "%s,%f,%f,%f,%f\n", dd->d_name, tH2D, tKernel, tD2H, tCPU);
 
         // Check result
         checkResult(hostRef, gpuRef, BIN_DIM);
@@ -254,9 +257,7 @@ int main(int argc, char **argv) {
         free(hostRef);
 
         // Reset CUDA device
-        CHECK(cudaDeviceReset());
-
-        
+        CHECK(cudaDeviceReset()); 
         
 
     }
